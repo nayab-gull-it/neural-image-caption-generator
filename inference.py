@@ -5,15 +5,11 @@ Core inference logic for the Neural Image Caption Generator (v2).
 
 Architecture: EfficientNetB0 encoder (fine-tuned, top 25 layers unfrozen)
 + Bahdanau attention + LSTM decoder with GloVe-initialized embeddings.
-
-This file rebuilds the exact training-time graph in code and loads only
-the trained weights (.weights.h5), rather than deserializing a full .h5
-model -- this avoids Keras version/serialization mismatches across
-environments (Colab vs local).
 """
 
 import json
 import pickle
+import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +24,20 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.models import Model
 
 ASSETS_DIR = Path(__file__).parent / "assets"
+
+# Fine-tuned weights are too large for GitHub (225MB > 100MB limit),
+# so they're hosted on Hugging Face Hub and downloaded at runtime instead.
+WEIGHTS_URL = "https://huggingface.co/NayabGull/neural-image-caption-generator/resolve/main/best_weights_finetuned.weights.h5"
+WEIGHTS_PATH = ASSETS_DIR / "best_weights_finetuned.weights.h5"
+
+
+def ensure_weights_downloaded():
+    """Downloads model weights from Hugging Face if not already present locally."""
+    if not WEIGHTS_PATH.exists():
+        ASSETS_DIR.mkdir(exist_ok=True)
+        print("Downloading model weights from Hugging Face...")
+        urllib.request.urlretrieve(WEIGHTS_URL, WEIGHTS_PATH)
+        print("Download complete.")
 
 
 class BahdanauAttention(Layer):
@@ -54,8 +64,8 @@ class BahdanauAttention(Layer):
 class CaptionDecoder(Layer):
     """
     Runs the per-timestep attention + LSTMCell loop. Wrapped in a Layer
-    (rather than a raw Python loop in the functional API) because Keras 3
-    disallows raw TF ops directly on KerasTensors outside a Layer's call().
+    because Keras 3 disallows raw TF ops directly on KerasTensors outside
+    a Layer's call().
     """
 
     def __init__(self, lstm_units, attention_units, vocab_size, timesteps, **kwargs):
@@ -103,9 +113,6 @@ def build_finetuned_model(vocab_size: int, max_length: int,
     Rebuilds the exact fine-tuned end-to-end graph used in training:
     raw image -> EfficientNetB0 (unfrozen top layers) -> spatial features
     -> Bahdanau attention + LSTM decoder -> caption.
-
-    NOTE: trainable=True/False doesn't matter at inference time (no gradient
-    updates happen), so we just rebuild the same shapes.
     """
     decoder_timesteps = max_length - 1
 
@@ -137,12 +144,12 @@ def build_finetuned_model(vocab_size: int, max_length: int,
 class CaptionGenerator:
     """
     Loads the trained fine-tuned model once and generates captions for any
-    PIL image passed to it. The CNN encoder is part of this single model
-    (unlike v1, where encoder/decoder were separate) since fine-tuning
-    required the CNN to be part of the trainable graph.
+    PIL image passed to it.
     """
 
     def __init__(self, assets_dir: Path = ASSETS_DIR):
+        ensure_weights_downloaded()
+
         with open(assets_dir / "config.json", "r") as f:
             self.config = json.load(f)
 
@@ -159,7 +166,7 @@ class CaptionGenerator:
             attention_units=self.config.get("attention_units", 512),
             feature_dim=self.config.get("feature_dim", 1280),
         )
-        self.model.load_weights(assets_dir / "best_weights_finetuned.weights.h5")
+        self.model.load_weights(WEIGHTS_PATH)
 
         self.index_to_word = {idx: w for w, idx in self.tokenizer.word_index.items()}
         self.start_idx = self.tokenizer.word_index["startseq"]
@@ -169,14 +176,10 @@ class CaptionGenerator:
         img = pil_image.convert("RGB").resize((224, 224))
         arr = img_to_array(img)
         arr = preprocess_input(arr)
-        return np.expand_dims(arr, axis=0)  # (1, 224, 224, 3)
+        return np.expand_dims(arr, axis=0)
 
     def generate_caption(self, pil_image, beam_width: int = 3,
                           no_repeat_ngram_size: int = 3) -> str:
-        """
-        Beam search decoding with n-gram repetition blocking, matching the
-        approach used during evaluation in the training notebook.
-        """
         image_arr = self._preprocess_image(pil_image)
         beams = [([self.start_idx], 0.0)]
 
@@ -219,7 +222,6 @@ class CaptionGenerator:
         return caption.capitalize()
 
 
-# Module-level singleton so Streamlit doesn't reload the model on every rerun.
 _generator_instance = None
 
 
