@@ -8,6 +8,7 @@ __pycache__/
 *.pyo
 .Python
 venv/
+.venv/
 env/
 *.egg-info/
 
@@ -29,3 +30,7 @@ Thumbs.db
 data/
 *.csv
 *.zip
+
+# Test/scratch files
+test_image.png
+test_image.jpg
