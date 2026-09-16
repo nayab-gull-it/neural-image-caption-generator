@@ -1,0 +1,31 @@
+# Model weights and large binary assets (tracked via Git LFS or hosted separately)
+assets/*.weights.h5
+assets/*.h5
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+venv/
+env/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Environment variables (if any API keys etc.)
+.env
+
+# Large data files (never commit raw datasets)
+data/
+*.csv
+*.zip
