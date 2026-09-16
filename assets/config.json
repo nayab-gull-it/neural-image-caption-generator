@@ -1,0 +1,8 @@
+{
+  "vocab_size": 19097,
+  "max_length": 34,
+  "embedding_dim": 300,
+  "lstm_units": 512,
+  "attention_units": 512,
+  "feature_dim": 1280
+}
